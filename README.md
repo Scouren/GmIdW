@@ -484,8 +484,8 @@ development build of Schemify: `schemify cmd --trust <project> gmid.reload` logs
   composes without faults: the nightly workflow runs it against Schemify `main`, so an ABI or
   host change shows up within a day.
 - Real simulators (ignored): `tests/espice.rs` characterizes FreePDK45 with both simulators and
-  compares them (`GMID_FREEPDK45_LIB` = a FreePDK45 `corners.lib`, `ngspice` and `espice` on
-  `PATH`), and ASAP7 with ESPice (`GMID_ASAP7_PDK` = an ASAP7 install, `ZIG`):
+  compares them (`GMID_FREEPDK45_LIB` = the `corners.lib` of a FreePDK45 kit installed from
+  Schemify's store, PDKs tab; `ngspice` and `espice` on `PATH`), and ASAP7 with ESPice (`GMID_ASAP7_PDK` = an ASAP7 kit from the same tab, `ZIG`):
   `cargo test --test espice -- --ignored`.
 
 ## C++ library and CLI (`cpp/`)

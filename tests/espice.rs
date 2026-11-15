@@ -2,7 +2,8 @@
 //! characterized both ways through the plugin's own config parser, netlists, parsers and LUT
 //! builder, with `std::process` in place of the host's `spawn` (cwd = the project root, as the
 //! app runs it). Ignored: needs `ngspice` and `espice` on PATH and `GMID_FREEPDK45_LIB`, the
-//! `corners.lib` of a pdk-manager FreePDK45 install (`.schemify/pdks/freepdk45/<h>/models/`).
+//! `corners.lib` of a FreePDK45 kit installed from Schemify's store, PDKs tab
+//! (`.schemify/pdks/freepdk45/<h>/models/`).
 //!
 //! Tolerances (espice.md §4c): Id agrees to 1e-5 (median) where it is not leakage (ESPice's is
 //! the terminal current, ngspice's `@m[id]` the channel current: they part in deep
@@ -141,8 +142,9 @@ fn espice_matches_ngspice_on_freepdk45() {
 /// ASAP7 on ESPice (README "ASAP7"): the deck loads the kit's BSIM-CMG with `.hdl` (no OSDI),
 /// the instance grounds the 5th (thermal) port. Oracle: ngspice + OpenVAF OSDI gave
 /// Id = 6.284561e-5 A for `nmos_rvt nfin=14` at VGS = VDS = 0.4 V (espice.md §4c, both
-/// simulators). Ignored: needs `espice` (with `ZIG`) and `GMID_ASAP7_PDK`, a pdk-manager ASAP7
-/// install; the first BSIM-CMG compile takes ≈ 4 min and 2.8 GB.
+/// simulators). Ignored: needs `espice` (with `ZIG`) and `GMID_ASAP7_PDK`, an ASAP7 kit
+/// installed from Schemify's store (PDKs tab); the first BSIM-CMG compile takes ≈ 4 min and
+/// 2.8 GB.
 #[test]
 #[ignore = "needs espice, ZIG and GMID_ASAP7_PDK; minutes on a cold ESPice cache"]
 fn espice_characterizes_asap7() {
