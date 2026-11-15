@@ -1,40 +1,78 @@
-# GmIDVisualizer: gm/Id sizing for Schemify
+# GmIdW: gm/Id sizing for Schemify
 
-A [Schemify](https://github.com/Scouren/Schemify-Plugins) plugin (a wasm guest, plugin ABI v1) that
-exports pure expression functions `gmid.*` (D20) backed by per-device lookup tables (LUTs), loads
-those tables from the project, and characterizes devices with ngspice or ESPice. The root crate
-(`gmid-lut`) is the plugin; the C++ library and `gmid_runner` CLI it grew out of are a secondary
-interface in [`cpp/`](#c-library-and-cli-cpp). The plugin is a rewrite in Rust of the same
-slice/netlist logic, without the C++ runner, serde or JSON.
+GmIdW is a plugin for the [Schemify](https://github.com/Scouren/Schemify-Releases) schematic
+editor that sizes MOSFETs by the gm/Id method. You characterize each device once, with ngspice
+or ESPice, into a lookup table (LUT) stored in the project. After that, expressions on a cell's
+docs page call `gmid.w`, `gmid.gm`, `gmid.ft` and the rest to turn an inversion-level target
+(gm/Id) or a current density (Id/W) and a length into a width, transconductance, gain or transit
+frequency. A design is then sized from targets instead of guessed widths, and Schemify
+recomputes every value when a table changes. The repository root is the plugin (Rust, compiled
+to WebAssembly); the C++ library and `gmid_runner` CLI it grew out of live in
+[`cpp/`](#c-library-and-cli-cpp).
+
+For example, the width of an nfet at gm/Id = 15 1/V, L = 0.5 µm and Id = 10 µA is one var on the
+docs page, which evaluates to 3.881 µm on the committed sky130 sample table:
+
+```
+var W_in "gmid.w(\"nfet_01v8\", 15, 0.5u, 10u)"
+  unit m
+```
 
 ## Install
 
-As a user package (every project), in `~/.config/schemify/init.lua`:
+GmIdW ships inside Schemify as a built-in package, at the commit Schemify pins, so there is
+nothing to download. It is off until you turn it on.
+
+**From the store.** Open the store, find **gmid** under *Installed* (tagged *Built-in*), and
+press *Enable*. Schemify asks you to allow the grants listed below.
+
+**From your config**, for every project, in `~/.config/schemify/init.lua`:
 
 ```lua
 schemify.pack.add {
-  { src = "https://github.com/Scouren/GmIdW",
-    grant = { "read_project", "write_project", "spawn:ngspice", "spawn:espice" } },
+  { builtin = "gmid", grant = { "read_project", "write_project", "spawn:ngspice", "spawn:espice" } },
 }
 ```
 
-then `schemify pack sync`. The repository root is the package: `gmid_lut.wasm` (committed,
-prebuilt) and `schemify.project`, whose `plugin gmid` record names the module and requests the
-grants above. A loaded package gets the intersection of what it requests and what you grant, so
-drop `spawn:espice` if you only characterize with ngspice.
-
-Or per project, with the module copied into the project, in its `schemify.project`:
+**For one project**, name a Lua file in the project's `schemify.project` header and add the
+plugin there. Schemify asks you to trust the file the first time the project opens:
 
 ```
-plugin gmid path plugins/gmid_lut.wasm
-  grant read_project
-  grant write_project
-  grant spawn:ngspice
-  grant spawn:espice
+schemify 1 project
+  init project.lua
 ```
 
-`read_project` loads `gmid.chars` and the LUTs; `write_project` and `spawn:ngspice` /
-`spawn:espice` (the simulator a device's `sim` names) are needed only for characterization.
+```lua
+-- project.lua
+schemify.pack.add {
+  { src = "https://github.com/Scouren/GmIdW", grant = { "read_project", "write_project", "spawn:ngspice" } },
+}
+```
+
+A `src` naming this repository without `rev` or `version` resolves to the built-in copy. Add
+`rev = "<commit>"` to run a specific commit of this repository instead; Schemify then clones it
+and installs the committed, prebuilt `gmid_lut.wasm`. No version has been tagged yet.
+
+**From source**, point a spec at a checkout: `{ path = "~/src/GmIdW", name = "gmid", grant = { … } }`
+(build it first, see [Building and testing](#building-and-testing)).
+
+The plugin gets the grants that both its `schemify.project` requests and you allow.
+`read_project` loads `gmid.chars` and the tables and is enough to use existing ones.
+`write_project` and `spawn:ngspice` or `spawn:espice` (the simulator a device's `sim` names) are
+needed only to characterize devices.
+
+## Usage
+
+1. List your devices in `gmid.chars` at the project root (see [`gmid.chars`](#gmidchars)), either
+   with a ready-made table (`lut`) or with a SPICE deck to characterize (`deck`).
+2. To build tables, run **Tools → gm/Id: characterize devices** (`gmid.characterize`). The plugin
+   simulates every device that has a deck and writes `.schemify/gmid/<device>.glut`. After
+   editing `gmid.chars`, run **Tools → gm/Id: reload lookup tables** (`gmid.reload`).
+3. Call the [functions](#functions) from `var` expressions on a cell's docs page, and use the vars
+   in instance parameters. The [OTA example](#example-a-5-transistor-ota-input-pair-sized-both-ways)
+   sizes an input pair both ways.
+
+Simulator errors go to Schemify's log; the table already loaded stays in use.
 
 ## Functions
 
@@ -60,7 +98,7 @@ take `vds` as their last argument; at the nominal VDS they return exactly what t
 function returns. `vds` must lie on the table's VDS axis (0.15 V … VDD for a default
 characterization).
 
-Registry records (`contribute functions`, plugin-abi §7): `function <name> <fn_id> <arity>` with
+Registry records (`contribute functions`, [plugin ABI](https://github.com/Scouren/Schemify-Plugins/blob/main/docs/spec/plugin-abi.md) §7): `function <name> <fn_id> <arity>` with
 `fn_id = index + 32 × generation`, index in the table order: vgs 0 … ft 6, vgs_at 7 … ft_at 13,
 l 14, then the Id/W family in the same row order, vgs_jd 15 … ft_jd 21, vgs_jd_at 22 …
 ft_jd_at 28. The generation starts at 0 on `Load` and advances whenever the loaded tables
@@ -147,7 +185,7 @@ the grid (the lengths in `gmid.chars`).
 ### Example: a 5-transistor OTA input pair, sized both ways
 
 20 µA tail, so 10 µA per input device; L = 0.5 µm; sky130 nfet (the committed sample table).
-On the cell's docs page (docs-page.md §3), side by side:
+On the cell's [docs page](https://github.com/Scouren/Schemify-Plugins/blob/main/docs/spec/docs-page.md), side by side:
 
 ```
 # gm/Id-driven                                      # Id/W-driven
@@ -181,7 +219,7 @@ The 0.02 % in W is the four digits typed for `jd_in`; with `jd_in` set to the gm
 
 ## `gmid.chars`
 
-Project-root config in line-record syntax (format spec §2; no `schemify` header). One
+Project-root config in Schemify's line-record syntax ([format spec](https://github.com/Scouren/Schemify-Plugins/blob/main/docs/spec/format.md) §2; no `schemify` header). One
 `device <name>` record per device; `<name>` is a word and is what `dev` matches.
 
 | Attribute | Meaning |
@@ -249,7 +287,7 @@ ABI does not allow it yet: a plugin `run` record names a bench that is already a
 (a `.shbench` the plugin writes is indexed only on the next project load), and `RunDone` /
 the `Results` snapshot carry the job's scalar outputs, not its raw file or directory, while the
 LUT needs the whole (L, VDS, VGS) grid of four OP quantities. Switch to a generated `.shbench`
-+ `run` once the ABI can run a written bench and hand back the job directory (BACKLOG).
++ `run` once the ABI can run a written bench and hand back the job directory.
 
 ### The sweep
 
@@ -271,7 +309,7 @@ the LUT) measured ≈ 15 M fuel against 10^8 per event (`tests/guest.rs`, which 
 module with wasmi). A single file for all 8 lengths measured ≈ 150 M and did not fit — hence
 one file per length.
 
-**ESPice** (espice.md §4c recipe ii; ESPice has no device OP vectors and ignores `.control`).
+**ESPice** (ESPice has no device OP vectors and ignores `.control`, so the sweep reads terminal currents).
 One netlist per device:
 
 ```
@@ -408,8 +446,22 @@ Schemify commit (`rev` in `Cargo.toml`); for work against a local Schemify check
 `[patch."https://github.com/Scouren/Schemify-Plugins"]` entries pointing at its `crates/protocol/abi` and
 `crates/plugins/plugin` in a `.cargo/config.toml` you do not commit.
 
+```sh
+nix develop                        # or any Rust 1.95.0 with the wasm32-unknown-unknown target and rust-lld
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+./build.sh                         # gmid_lut.wasm at the repository root
+cargo test --no-fail-fast          # unit tests, the built guest under wasmi, Schemify's real plugin host
+```
+
+To check the plugin in the editor without a window, make a project with a `gmid.chars` that
+names the sample tables in `tests/fixtures/schemify/ota/gmid/`, add this checkout from its init
+file (`{ path = "<checkout>", name = "gmid", grant = { "read_project" } }`), and run a
+development build of Schemify: `schemify cmd --trust <project> gmid.reload` logs
+`nfet_01v8 loaded` and `pfet_01v8 loaded`.
+
 - `./build.sh` builds `gmid_lut.wasm` for `wasm32-unknown-unknown` at the repository root
-  (limit 200 KB, it is ≈ 179 KB: 178 665 bytes), byte-reproducibly: host paths are remapped. Commit the module
+  (limit 200 KB; it is about 179 KB), byte-reproducibly: host paths are remapped. Commit the module
   with the source change; CI fails when they disagree.
 - Native tests (the guest glue is `cfg(target_arch = "wasm32")`, everything else is plain Rust):
   `cargo test`. Unit tests cover the format round
@@ -432,8 +484,8 @@ Schemify commit (`rev` in `Cargo.toml`); for work against a local Schemify check
   composes without faults: the nightly workflow runs it against Schemify `main`, so an ABI or
   host change shows up within a day.
 - Real simulators (ignored): `tests/espice.rs` characterizes FreePDK45 with both simulators and
-  compares them (`GMID_FREEPDK45_LIB` = a pdk-manager `corners.lib`, `ngspice` and `espice` on
-  `PATH`), and ASAP7 with ESPice (`GMID_ASAP7_PDK` = a pdk-manager ASAP7 install, `ZIG`):
+  compares them (`GMID_FREEPDK45_LIB` = a FreePDK45 `corners.lib`, `ngspice` and `espice` on
+  `PATH`), and ASAP7 with ESPice (`GMID_ASAP7_PDK` = an ASAP7 install, `ZIG`):
   `cargo test --test espice -- --ignored`.
 
 ## C++ library and CLI (`cpp/`)
@@ -543,6 +595,10 @@ gmid_free_result(r);
 A backend is a type satisfying the `Simulator` concept in `cpp/include/gmid/simulator.hpp`
 that returns a `SweepResult` (vgs/vds/id, plus `cgg` per point); add it to `SimulatorVar`.
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
+
 ## License
 
-MIT, see `LICENSE`.
+MIT, see [LICENSE](LICENSE).
